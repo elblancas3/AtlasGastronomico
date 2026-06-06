@@ -1006,9 +1006,9 @@ nav { filter: none !important; grayscale: 0 !important; }
 // ═══════════════════════════════════════════════════════════════════════════════
 const SHEET_ID   = '1YNIdIlMkSTOZM6fIXOPIuZYmk7Y59BcBiD0uCFkrMSA'; // Atlas Gastronómico — datos reales
 const SHEET_NAME      = 'Hoja1';
-const SHEET_URL       = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${SHEET_NAME}`;
-const STORIES_URL     = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=historias`;
-const CAL_URL         = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=temporadas`;
+const SHEET_URL       = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${SHEET_NAME}`;
+const STORIES_URL     = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=historias`;
+const CAL_URL         = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=temporadas`;
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby5eJ4HhEAqlEItiXfKupns6wHy4l-11QM3zyDYQXWuD4f_XZsfs0uCwLLs-vm_gBxPhw/exec';
 
@@ -1196,49 +1196,56 @@ function loadData(){
   });
 }
 
+// ── Parser universal gviz JSON (siempre UTF-8, sin problemas de encoding) ────
+function parseGvizJSON(text){
+  // La respuesta gviz viene: /*O_o*/\ngoogle.visualization.Query.setResponse({...});
+  const match = text.match(/google\.visualization\.Query\.setResponse\((.+)\);?\s*$/s);
+  if(!match) return {headers:[], rows:[]};
+  const data = JSON.parse(match[1]);
+  const table = data.table;
+  const headers = table.cols.map(c => (c.label || c.id || '').trim());
+  const rows = table.rows.map(row =>
+    (row.c || []).map(cell => (cell && cell.v != null) ? String(cell.v) : '')
+  );
+  return {headers, rows};
+}
+
 function parseCSV(text){
-  const lines = text.trim().split('\n');
-  const headers = lines[0].split(',').map(h=>h.replace(/"/g,'').trim());
-  return lines.slice(1).map(line=>{
-    const vals = line.match(/(".*?"|[^,]+)(?=,|$)/g)||[];
+  const {headers, rows} = parseGvizJSON(text);
+  return rows.map(vals => {
     const obj = {};
-    headers.forEach((h,i)=>{ obj[h]=(vals[i]||'').replace(/"/g,'').trim(); });
-    // Google Sheets en español puede desplazar el decimal — corregir si es necesario
+    headers.forEach((h,i) => { obj[h] = (vals[i]||'').trim(); });
     let lat = parseFloat(obj.lat)||0;
     let lon = parseFloat(obj.lon)||0;
-    // Si lat > 90 o lon > 180, dividir entre 10 hasta rango válido
     while(Math.abs(lat) > 90)  lat /= 10;
     while(Math.abs(lon) > 180) lon /= 10;
     obj.lat = lat;
     obj.lon = lon;
     return obj;
-  }).filter(r=>r.lat && r.lon);
+  }).filter(r => r.lat && r.lon);
 }
 
-
 function parseStoriesCSV(text){
-  // Columnas: kicker,title,region,body,lat,lon,color,fact1_v,fact1_k,fact2_v,fact2_k,fact3_v,fact3_k,fact4_v,fact4_k,carpeta_foto
-  if(!text || !text.trim()) return [];
-  const lines = text.trim().split('\n');
-  const headers = lines[0].split(',').map(h=>h.replace(/"/g,'').trim());
-  return lines.slice(1).map(line=>{
-    const vals = line.match(/("[^"]*"|[^,]+|(?<=,)(?=,)|^(?=,)|(?<=,)$)/g)||[];
+  const {headers, rows} = parseGvizJSON(text);
+  return rows.map(vals => {
     const obj = {};
-    headers.forEach((h,i)=>{ obj[h]=(vals[i]||'').replace(/^"|"$/g,'').trim(); });
-    // Construir facts desde columnas fact1_v/fact1_k … fact4_v/fact4_k
+    headers.forEach((h,i) => { obj[h] = (vals[i]||'').trim(); });
     const facts = [];
-    for(let n=1;n<=4;n++){
+    for(let n=1; n<=4; n++){
       const v = obj[`fact${n}_v`], k = obj[`fact${n}_k`];
       if(v && k) facts.push({v, k});
     }
+    let lat = parseFloat(obj.lat)||19.4;
+    let lon = parseFloat(obj.lon)||-99.1;
+    while(Math.abs(lat) > 90)  lat /= 10;
+    while(Math.abs(lon) > 180) lon /= 10;
     return {
-      kicker:      obj.kicker    || '',
-      title:       obj.title     || '',
-      region:      obj.region    || '',
-      body:        obj.body      || '',
-      lat:         (v => { while(Math.abs(v) > 90)  v/=10; return v; })(parseFloat(obj.lat)  || 19.4),
-      lon:         (v => { while(Math.abs(v) > 180) v/=10; return v; })(parseFloat(obj.lon)  || -99.1),
-      color:       obj.color     || '#943228',
+      kicker:       obj.kicker      || '',
+      title:        obj.title       || '',
+      region:       obj.region      || '',
+      body:         obj.body        || '',
+      lat, lon,
+      color:        obj.color       || '#943228',
       facts,
       carpeta_foto: obj.carpeta_foto || '',
     };
@@ -1246,250 +1253,16 @@ function parseStoriesCSV(text){
 }
 
 function parseCalCSV(text){
-  // Columnas: nombre,categoria,region,ene,feb,mar,abr,may,jun,jul,ago,sep,oct,nov,dic
-  // Valores: 0=ninguno, 1=plena, 2=pico
-  if(!text || !text.trim()) return [];
-  const lines = text.trim().split('\n');
-  return lines.slice(1).map(line=>{
-    const vals = line.match(/("[^"]*"|[^,]+|(?<=,)(?=,)|^(?=,)|(?<=,)$)/g)||[];
-    const clean = v => (v||'').replace(/^"|"$/g,'').trim();
-    const months = vals.slice(3,15).map(v => parseFloat(clean(v))||0);
-    return {
-      n:   clean(vals[0]),
-      cat: clean(vals[1]),
-      r:   clean(vals[2]),
-      m:   months,
-    };
+  const {headers, rows} = parseGvizJSON(text);
+  return rows.map(vals => {
+    const obj = {};
+    headers.forEach((h,i) => { obj[h] = (vals[i]||'').trim(); });
+    const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    const m = meses.map(mes => parseFloat(obj[mes])||0);
+    return { n: obj.nombre||'', cat: obj.categoria||'', r: obj.region||'', m };
   }).filter(c => c.n);
 }
 
-function setStatus(txt, state){
-  document.getElementById('statusTxt').textContent = txt;
-  const dot = document.getElementById('statusDot');
-  dot.style.background = state==='ok' ? '#5A9B52' : state==='loading' ? '#B8820F' : '#943228';
-}
-
-// ─── ÍCONOS LEAFLET ──────────────────────────────────────────────────────────
-const TIPO_COLOR = { ingrediente:'#943228', tecnica:'#3A6B35', mercado:'#B8820F' };
-function makeIcon(tipo){
-  const c = TIPO_COLOR[tipo] || '#3A6B35';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
-    <path d="M14 0C6.27 0 0 6.27 0 14c0 9.33 14 22 14 22S28 23.33 28 14C28 6.27 21.73 0 14 0z"
-      fill="${c}" stroke="white" stroke-width="1.5"/>
-    <circle cx="14" cy="14" r="5" fill="white" opacity=".9"/>
-  </svg>`;
-  return L.divIcon({
-    html:svg, className:'', iconSize:[28,36], iconAnchor:[14,36], popupAnchor:[0,-38]
-  });
-}
-
-function renderPins(data){
-  // Limpiar markers anteriores
-  Object.values(markers).forEach(m=>leafMap.removeLayer(m));
-  markers = {};
-  const filtered = catFilter==='todo' ? data : data.filter(d=>d.tipo===catFilter);
-  filtered.forEach(d=>{
-    if(!d.lat || !d.lon) return;
-    const thumbHtml = d.imagen_principal
-      ? `<div style="background-image:url('${d.imagen_principal}');background-size:cover;background-position:center;height:80px;border-radius:4px 4px 0 0;margin:-6px -12px 8px;"></div>`
-      : '';
-    const m = L.marker([d.lat, d.lon], {icon: makeIcon(d.tipo)})
-      .addTo(leafMap)
-      .bindPopup(`
-        ${thumbHtml}
-        <div class="l-popup-tipo">${d.tipo}</div>
-        <div class="l-popup-name">${d.nombre}</div>
-        <div class="l-popup-loc">${d.region}${d.subregion?', '+d.subregion:''}</div>
-      `, {maxWidth: 220});
-    m.on('click', ()=>showInfo(d));
-    markers[d.id] = m;
-  });
-}
-
-// ── Estado del carrusel ────────────────────────────────────────────────────
-let carouselIdx   = 0;
-let carouselTotal = 0;
-const fotosCache  = {};
-
-function showInfo(d){
-  document.getElementById('if-tipo').textContent   = d.tipo;
-  document.getElementById('if-name').textContent   = d.nombre;
-  document.getElementById('if-region').textContent = `${d.region}${d.subregion?', '+d.subregion:''}`;
-  document.getElementById('if-desc').textContent   = d.descripcion || '';
-  document.getElementById('if-pills').innerHTML =
-    (d.temporada ? `<span class="if-pill">📅 ${d.temporada}</span>` : '') +
-    (d.tags ? d.tags.split(',').slice(0,3).map(t=>`<span class="if-pill">${t.trim()}</span>`).join('') : '');
-  document.getElementById('infoFloat').style.display='block';
-
-  // Resaltar pin en sidebar
-  document.querySelectorAll('.pin-item').forEach(el=>el.classList.remove('sel'));
-  const el = document.querySelector(`.pin-item[data-id="${d.id}"]`);
-  if(el){ el.classList.add('sel'); el.scrollIntoView({block:'nearest'}); }
-
-  // Cargar fotos
-  cargarFotosInfo(d);
-}
-
-function cargarFotosInfo(d){
-  const carousel    = document.getElementById('ifCarousel');
-  const noFoto      = document.getElementById('ifNoFoto');
-  const track       = document.getElementById('ifCarouselTrack');
-  const loader      = document.getElementById('ifCarouselLoader');
-  const dotsEl      = document.getElementById('ifDots');
-
-  // Reset
-  track.innerHTML = '';
-  dotsEl.innerHTML = '';
-  carouselIdx = 0;
-
-  // Extraer folder_id de carpeta_fotos o imagen_principal
-  const folderUrl  = d.carpeta_fotos || '';
-  const imgPrincipal = d.imagen_principal || '';
-
-  // Si hay imagen_principal y no hay carpeta, mostrar solo esa imagen
-  if(!folderUrl && imgPrincipal){
-    construirCarousel([{url: imgPrincipal, nombre: d.nombre}]);
-    return;
-  }
-
-  // Si no hay nada, mostrar ícono
-  if(!folderUrl && !imgPrincipal){
-    carousel.style.display = 'none';
-    noFoto.style.display   = 'flex';
-    return;
-  }
-
-  // Extraer folder_id de la URL
-  const m = folderUrl.match(/folders\/([a-zA-Z0-9_-]+)/);
-  if(!m){
-    // Si la URL no es de carpeta, intentar usar como imagen directa
-    if(folderUrl.startsWith('http')){
-      construirCarousel([{url: folderUrl, nombre: d.nombre}]);
-    } else {
-      carousel.style.display = 'none';
-      noFoto.style.display   = 'flex';
-    }
-    return;
-  }
-
-  const folderId = m[1];
-
-  // Cache para no re-fetchear
-  if(fotosCache[folderId]){
-    construirCarousel(fotosCache[folderId]);
-    return;
-  }
-
-  // Mostrar carrusel en modo loading
-  noFoto.style.display = 'none';
-  carousel.style.display = 'block';
-  loader.style.display = 'flex';
-  track.innerHTML = '';
-
-  // Si hay imagen principal la añadimos primero sin esperar
-  if(imgPrincipal){
-    construirCarousel([{url: imgPrincipal, nombre: d.nombre + ' (principal)'}]);
-  }
-
-  // Fetch directo al Apps Script (soporta CORS en GET)
-  fetch(`${APPS_SCRIPT_URL}?action=fotos&folder_id=${folderId}&callback=json`, {
-    method: 'GET',
-    redirect: 'follow',
-  })
-  .then(r => r.text())
-  .then(text => {
-    // Apps Script devuelve JSONP: json({...}) — extraer el JSON
-    const match = text.match(/^[\w$]+\((.+)\)\s*$/s);
-    const res = match ? JSON.parse(match[1]) : JSON.parse(text);
-    loader.style.display = 'none';
-    if(res.ok && res.fotos && res.fotos.length){
-      fotosCache[folderId] = res.fotos;
-      construirCarousel(res.fotos);
-    } else {
-      if(!imgPrincipal){
-        carousel.style.display = 'none';
-        noFoto.style.display   = 'flex';
-      }
-    }
-  })
-  .catch(() => {
-    loader.style.display = 'none';
-    if(!imgPrincipal){
-      carousel.style.display = 'none';
-      noFoto.style.display   = 'flex';
-    }
-  });
-}
-
-function construirCarousel(fotos){
-  const carousel = document.getElementById('ifCarousel');
-  const noFoto   = document.getElementById('ifNoFoto');
-  const track    = document.getElementById('ifCarouselTrack');
-  const dotsEl   = document.getElementById('ifDots');
-  const loader   = document.getElementById('ifCarouselLoader');
-
-  if(!fotos || !fotos.length){
-    carousel.style.display = 'none';
-    noFoto.style.display = 'flex';
-    return;
-  }
-
-  noFoto.style.display = 'none';
-  carousel.style.display = 'block';
-  loader.style.display = 'none';
-  carouselTotal = fotos.length;
-  carouselIdx = 0;
-
-  track.innerHTML = fotos.map(f=>
-    `<div class="if-carousel-slide" style="background-image:url('${f.thumbnail||f.url}')"></div>`
-  ).join('');
-
-  dotsEl.innerHTML = fotos.map((_,i)=>
-    `<div class="if-carousel-dot${i===0?' on':''}"></div>`
-  ).join('');
-
-  // Ocultar botones si solo hay una foto
-  document.getElementById('ifPrev').style.display = fotos.length > 1 ? 'flex' : 'none';
-  document.getElementById('ifNext').style.display = fotos.length > 1 ? 'flex' : 'none';
-  actualizarCarousel();
-}
-
-function carouselNav(dir){
-  carouselIdx = (carouselIdx + dir + carouselTotal) % carouselTotal;
-  actualizarCarousel();
-}
-
-function actualizarCarousel(){
-  const track  = document.getElementById('ifCarouselTrack');
-  const dots   = document.querySelectorAll('.if-carousel-dot');
-  track.style.transform = `translateX(-${carouselIdx * 100}%)`;
-  dots.forEach((d,i)=> d.classList.toggle('on', i===carouselIdx));
-}
-
-function renderSidebar(data){
-  const list = document.getElementById('pinList');
-  list.innerHTML='';
-  const filtered = catFilter==='todo' ? data : data.filter(d=>d.tipo===catFilter);
-  if(!filtered.length){ list.innerHTML='<div style="padding:1rem;font-size:.8rem;color:var(--gris);font-style:italic">Sin resultados para este filtro.</div>'; return; }
-  filtered.forEach(d=>{
-    const el = document.createElement('div');
-    el.className='pin-item'; el.dataset.id=d.id;
-    el.innerHTML=`<div class="pin-tipo">${d.tipo}</div><div class="pin-name">${d.nombre}</div><div class="pin-loc">${d.region}${d.subregion?', '+d.subregion:''}</div>`;
-    el.addEventListener('click',()=>{
-      if(markers[d.id]) leafMap.panTo([d.lat, d.lon], {animate:true});
-      showInfo(d);
-    });
-    list.appendChild(el);
-  });
-}
-
-function filterPins(btn, cat){
-  document.querySelectorAll('.filter-wrap .chip').forEach(c=>c.classList.remove('on'));
-  btn.classList.add('on');
-  catFilter = cat;
-  renderPins(DATA);
-  renderSidebar(DATA);
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // II: STORY MAP
