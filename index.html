@@ -874,7 +874,6 @@ nav { filter: none !important; grayscale: 0 !important; }
     <aside class="sidebar">
       <div class="sidebar-head">
         <div class="sidebar-title">Explorar el territorio</div>
-        <div class="sidebar-sub">Cargando desde Google Sheets…</div>
       </div>
       <div class="filter-wrap">
         <span class="filter-label">Categoría</span>
@@ -1151,6 +1150,17 @@ function initLeafMap(){
 
   // Cargar datos
   loadData();
+}
+
+function setStatus(msg, state){
+  const el = document.getElementById('statusTxt');
+  const dot = document.querySelector('.status-dot');
+  if(!el) return;
+  el.textContent = msg;
+  if(dot){
+    dot.style.background = state === 'ok' ? '#6AAF5A' :
+                           state === 'error' ? '#E03528' : '#E8B84B';
+  }
 }
 
 function loadData(){
