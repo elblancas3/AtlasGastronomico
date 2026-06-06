@@ -1204,8 +1204,14 @@ function parseCSV(text){
     const vals = line.match(/(".*?"|[^,]+)(?=,|$)/g)||[];
     const obj = {};
     headers.forEach((h,i)=>{ obj[h]=(vals[i]||'').replace(/"/g,'').trim(); });
-    obj.lat = parseFloat(obj.lat)||0;
-    obj.lon = parseFloat(obj.lon)||0;
+    // Google Sheets en español puede desplazar el decimal — corregir si es necesario
+    let lat = parseFloat(obj.lat)||0;
+    let lon = parseFloat(obj.lon)||0;
+    // Si lat > 90 o lon > 180, dividir entre 10 hasta rango válido
+    while(Math.abs(lat) > 90)  lat /= 10;
+    while(Math.abs(lon) > 180) lon /= 10;
+    obj.lat = lat;
+    obj.lon = lon;
     return obj;
   }).filter(r=>r.lat && r.lon);
 }
@@ -1231,8 +1237,8 @@ function parseStoriesCSV(text){
       title:       obj.title     || '',
       region:      obj.region    || '',
       body:        obj.body      || '',
-      lat:         parseFloat(obj.lat)  || 19.4,
-      lon:         parseFloat(obj.lon)  || -99.1,
+      lat:         (v => { while(Math.abs(v) > 90)  v/=10; return v; })(parseFloat(obj.lat)  || 19.4),
+      lon:         (v => { while(Math.abs(v) > 180) v/=10; return v; })(parseFloat(obj.lon)  || -99.1),
       color:       obj.color     || '#943228',
       facts,
       carpeta_foto: obj.carpeta_foto || '',
