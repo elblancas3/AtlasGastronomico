@@ -1305,35 +1305,34 @@ function cargarFotosInfo(d){
     construirCarousel([{url: imgPrincipal, nombre: d.nombre + ' (principal)'}]);
   }
 
-  // Fetch vía JSONP al Apps Script
-  const cbName = 'cb_fotos_' + Date.now();
-  window[cbName] = function(res){
-    delete window[cbName];
-    if(script.parentNode) script.parentNode.removeChild(script);
+  // Fetch directo al Apps Script (soporta CORS en GET)
+  fetch(`${APPS_SCRIPT_URL}?action=fotos&folder_id=${folderId}&callback=json`, {
+    method: 'GET',
+    redirect: 'follow',
+  })
+  .then(r => r.text())
+  .then(text => {
+    // Apps Script devuelve JSONP: json({...}) — extraer el JSON
+    const match = text.match(/^[\w$]+\((.+)\)\s*$/s);
+    const res = match ? JSON.parse(match[1]) : JSON.parse(text);
     loader.style.display = 'none';
     if(res.ok && res.fotos && res.fotos.length){
       fotosCache[folderId] = res.fotos;
       construirCarousel(res.fotos);
     } else {
-      // Fallback: si ya pusimos imagen principal, queda; si no, emoji
       if(!imgPrincipal){
         carousel.style.display = 'none';
         noFoto.style.display   = 'flex';
       }
     }
-  };
-
-  const script = document.createElement('script');
-  script.src = `${APPS_SCRIPT_URL}?action=fotos&folder_id=${folderId}&callback=${cbName}`;
-  script.onerror = ()=>{
-    delete window[cbName];
+  })
+  .catch(() => {
     loader.style.display = 'none';
     if(!imgPrincipal){
       carousel.style.display = 'none';
       noFoto.style.display   = 'flex';
     }
-  };
-  document.head.appendChild(script);
+  });
 }
 
 function construirCarousel(fotos){
