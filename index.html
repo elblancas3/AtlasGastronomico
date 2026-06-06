@@ -1005,10 +1005,10 @@ nav { filter: none !important; grayscale: 0 !important; }
 // CONFIG — apunta a tu Google Sheet publicado como CSV
 // ═══════════════════════════════════════════════════════════════════════════════
 const SHEET_ID   = '1YNIdIlMkSTOZM6fIXOPIuZYmk7Y59BcBiD0uCFkrMSA'; // Atlas Gastronómico — datos reales
-const SHEET_NAME      = 'Hoja1';
-const SHEET_URL       = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${SHEET_NAME}`;
-const STORIES_URL     = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=historias`;
-const CAL_URL         = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=temporadas`;
+const SHEET_NAME      = 'map';
+const SHEET_URL       = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${SHEET_NAME}`;
+const STORIES_URL     = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=historias`;
+const CAL_URL         = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=temporadas`;
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby5eJ4HhEAqlEItiXfKupns6wHy4l-11QM3zyDYQXWuD4f_XZsfs0uCwLLs-vm_gBxPhw/exec';
 
@@ -1197,70 +1197,84 @@ function loadData(){
 }
 
 // ── Parser universal gviz JSON (siempre UTF-8, sin problemas de encoding) ────
-function parseGvizJSON(text){
-  // La respuesta gviz viene: /*O_o*/\ngoogle.visualization.Query.setResponse({...});
-  const match = text.match(/google\.visualization\.Query\.setResponse\((.+)\);?\s*$/s);
-  if(!match) return {headers:[], rows:[]};
-  const data = JSON.parse(match[1]);
-  const table = data.table;
-  const headers = table.cols.map(c => (c.label || c.id || '').trim());
-  const rows = table.rows.map(row =>
-    (row.c || []).map(cell => (cell && cell.v != null) ? String(cell.v) : '')
-  );
-  return {headers, rows};
+function fixEncoding(str){
+  if(!str) return str;
+  return str
+    .replace(/\u00e2\u20ac\u201c/g,'\u2014').replace(/\u00e2\u20ac\u2013/g,'\u2013')
+    .replace(/\u00e2\u20ac\u2122/g,'\u2019').replace(/\u00e2\u20ac\u0153/g,'\u201c')
+    .replace(/\u00e2\u20ac/g,'\u201d')
+    .replace(/\u00c3\u00a1/g,'\u00e1').replace(/\u00c3\u00a9/g,'\u00e9')
+    .replace(/\u00c3\u00ad/g,'\u00ed').replace(/\u00c3\u00b3/g,'\u00f3')
+    .replace(/\u00c3\u00ba/g,'\u00fa').replace(/\u00c3\u00b1/g,'\u00f1')
+    .replace(/\u00c3\u00bc/g,'\u00fc').replace(/\u00c3\u0081/g,'\u00c1')
+    .replace(/\u00c3\u2030/g,'\u00c9').replace(/\u00c3\u008d/g,'\u00cd')
+    .replace(/\u00c3\u201d/g,'\u00d3').replace(/\u00c3\u009a/g,'\u00da');
+}
+
+// Parser CSV con soporte de comillas, comas en campos y fixEncoding
+function splitCSVLine(line){
+  const result = []; let cur = ''; let inQ = false;
+  for(let i=0;i<line.length;i++){
+    const c = line[i];
+    if(c==='"'){ if(inQ && line[i+1]==='"'){ cur+='"'; i++; } else inQ=!inQ; }
+    else if(c===',' && !inQ){ result.push(cur); cur=''; }
+    else cur+=c;
+  }
+  result.push(cur);
+  return result.map(v=>fixEncoding(v.trim()));
 }
 
 function parseCSV(text){
-  const {headers, rows} = parseGvizJSON(text);
-  return rows.map(vals => {
+  const lines = text.trim().split('\n');
+  const headers = splitCSVLine(lines[0]);
+  return lines.slice(1).map(line=>{
+    const vals = splitCSVLine(line);
     const obj = {};
-    headers.forEach((h,i) => { obj[h] = (vals[i]||'').trim(); });
+    headers.forEach((h,i)=>{ obj[h] = vals[i]||''; });
     let lat = parseFloat(obj.lat)||0;
     let lon = parseFloat(obj.lon)||0;
-    while(Math.abs(lat) > 90)  lat /= 10;
-    while(Math.abs(lon) > 180) lon /= 10;
-    obj.lat = lat;
-    obj.lon = lon;
+    while(Math.abs(lat)>90)  lat/=10;
+    while(Math.abs(lon)>180) lon/=10;
+    obj.lat = lat; obj.lon = lon;
     return obj;
-  }).filter(r => r.lat && r.lon);
+  }).filter(r=>r.lat && r.lon);
 }
 
 function parseStoriesCSV(text){
-  const {headers, rows} = parseGvizJSON(text);
-  return rows.map(vals => {
+  const lines = text.trim().split('\n');
+  if(lines.length < 2) return [];
+  const headers = splitCSVLine(lines[0]);
+  return lines.slice(1).map(line=>{
+    const vals = splitCSVLine(line);
     const obj = {};
-    headers.forEach((h,i) => { obj[h] = (vals[i]||'').trim(); });
+    headers.forEach((h,i)=>{ obj[h] = vals[i]||''; });
     const facts = [];
-    for(let n=1; n<=4; n++){
-      const v = obj[`fact${n}_v`], k = obj[`fact${n}_k`];
-      if(v && k) facts.push({v, k});
+    for(let n=1;n<=4;n++){
+      const v=obj[`fact${n}_v`], k=obj[`fact${n}_k`];
+      if(v&&k) facts.push({v,k});
     }
-    let lat = parseFloat(obj.lat)||19.4;
-    let lon = parseFloat(obj.lon)||-99.1;
-    while(Math.abs(lat) > 90)  lat /= 10;
-    while(Math.abs(lon) > 180) lon /= 10;
-    return {
-      kicker:       obj.kicker      || '',
-      title:        obj.title       || '',
-      region:       obj.region      || '',
-      body:         obj.body        || '',
-      lat, lon,
-      color:        obj.color       || '#943228',
-      facts,
-      carpeta_foto: obj.carpeta_foto || '',
-    };
-  }).filter(s => s.title);
+    let lat=parseFloat(obj.lat)||19.4;
+    let lon=parseFloat(obj.lon)||-99.1;
+    while(Math.abs(lat)>90)  lat/=10;
+    while(Math.abs(lon)>180) lon/=10;
+    return { kicker:obj.kicker||'', title:obj.title||'', region:obj.region||'',
+             body:obj.body||'', lat, lon, color:obj.color||'#943228',
+             facts, carpeta_foto:obj.carpeta_foto||'' };
+  }).filter(s=>s.title);
 }
 
 function parseCalCSV(text){
-  const {headers, rows} = parseGvizJSON(text);
-  return rows.map(vals => {
+  const lines = text.trim().split('\n');
+  if(lines.length < 2) return [];
+  const headers = splitCSVLine(lines[0]);
+  return lines.slice(1).map(line=>{
+    const vals = splitCSVLine(line);
     const obj = {};
-    headers.forEach((h,i) => { obj[h] = (vals[i]||'').trim(); });
-    const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-    const m = meses.map(mes => parseFloat(obj[mes])||0);
-    return { n: obj.nombre||'', cat: obj.categoria||'', r: obj.region||'', m };
-  }).filter(c => c.n);
+    headers.forEach((h,i)=>{ obj[h]=vals[i]||''; });
+    const meses=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    const m = meses.map(mes=>parseFloat(obj[mes])||0);
+    return { n:obj.nombre||'', cat:obj.categoria||'', r:obj.region||'', m };
+  }).filter(c=>c.n);
 }
 
 
