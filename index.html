@@ -1350,15 +1350,17 @@ function showInfo(d){
   document.getElementById('if-tipo').textContent   = d.tipo;
   document.getElementById('if-name').textContent   = d.nombre;
   document.getElementById('if-region').textContent = `${d.region}${d.subregion?', '+d.subregion:''}`;
-  document.getElementById('if-desc').textContent   = d.descripcion;
+  document.getElementById('if-desc').textContent   = d.descripcion || '';
   document.getElementById('if-pills').innerHTML =
-    `<span class="if-pill">📅 ${d.temporada}</span>` +
+    (d.temporada ? `<span class="if-pill">📅 ${d.temporada}</span>` : '') +
     (d.tags ? d.tags.split(',').slice(0,3).map(t=>`<span class="if-pill">${t.trim()}</span>`).join('') : '');
   document.getElementById('infoFloat').style.display='block';
-  // resaltar pin item en sidebar
+  // resaltar pin en sidebar
   document.querySelectorAll('.pin-item').forEach(el=>el.classList.remove('sel'));
   const el = document.querySelector(`.pin-item[data-id="${d.id}"]`);
   if(el){ el.classList.add('sel'); el.scrollIntoView({block:'nearest'}); }
+  // cargar fotos en carrusel
+  cargarFotosInfo(d);
 }
 
 
