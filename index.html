@@ -913,6 +913,7 @@ nav { filter: none !important; grayscale: 0 !important; }
     <aside class="sidebar">
       <div class="sidebar-head">
         <div class="sidebar-title">Explorar el territorio</div>
+        <div class="sidebar-sub">Cargando desde Google Sheets…</div>
       </div>
       <div class="filter-wrap">
         <span class="filter-label">Categoría</span>
@@ -921,6 +922,7 @@ nav { filter: none !important; grayscale: 0 !important; }
           <button class="chip" onclick="filterPins(this,'ingrediente')">Ingredientes</button>
           <button class="chip" onclick="filterPins(this,'tecnica')">Técnicas</button>
           <button class="chip" onclick="filterPins(this,'mercado')">Mercados</button>
+          <button class="chip" onclick="filterPins(this,'fonda')">Fondas</button>
         </div>
       </div>
       <div class="pin-list" id="pinList">
@@ -1243,6 +1245,8 @@ function loadData(){
     renderSidebar(DATA);
     renderCal();
     setStatus(`${DATA.length} registros cargados`, 'ok');
+    // Forzar re-render del mapa por si Leaflet no tenía el tamaño correcto
+    if(leafMap) setTimeout(()=>leafMap.invalidateSize(), 100);
   });
 }
 
@@ -1307,6 +1311,8 @@ function parseCalCSV(text){
 // ═══════════════════════════════════════════════════════════════════════════════
 // II: STORY MAP
 // ═══════════════════════════════════════════════════════════════════════════════
+const TIPO_COLOR = { ingrediente:'#943228', tecnica:'#3A6B35', mercado:'#9B7428', fonda:'#5B4A8A' };
+
 function makeIcon(tipo){
   const c = TIPO_COLOR[tipo] || '#3A6B35';
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
