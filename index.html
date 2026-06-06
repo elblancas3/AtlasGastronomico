@@ -874,6 +874,7 @@ nav { filter: none !important; grayscale: 0 !important; }
     <aside class="sidebar">
       <div class="sidebar-head">
         <div class="sidebar-title">Explorar el territorio</div>
+        <div class="sidebar-sub">Cargando desde Google Sheets…</div>
       </div>
       <div class="filter-wrap">
         <span class="filter-label">Categoría</span>
@@ -1197,78 +1198,54 @@ function loadData(){
 }
 
 // ── Parser universal gviz JSON (siempre UTF-8, sin problemas de encoding) ────
-function fixEncoding(str){
-  if(!str) return str;
-  return str
-    .replace(/\u00e2\u20ac\u201c/g,'\u2014').replace(/\u00e2\u20ac\u2013/g,'\u2013')
-    .replace(/\u00e2\u20ac\u2122/g,'\u2019').replace(/\u00e2\u20ac\u0153/g,'\u201c')
-    .replace(/\u00e2\u20ac/g,'\u201d')
-    .replace(/\u00c3\u00a1/g,'\u00e1').replace(/\u00c3\u00a9/g,'\u00e9')
-    .replace(/\u00c3\u00ad/g,'\u00ed').replace(/\u00c3\u00b3/g,'\u00f3')
-    .replace(/\u00c3\u00ba/g,'\u00fa').replace(/\u00c3\u00b1/g,'\u00f1')
-    .replace(/\u00c3\u00bc/g,'\u00fc').replace(/\u00c3\u0081/g,'\u00c1')
-    .replace(/\u00c3\u2030/g,'\u00c9').replace(/\u00c3\u008d/g,'\u00cd')
-    .replace(/\u00c3\u201d/g,'\u00d3').replace(/\u00c3\u009a/g,'\u00da');
-}
-
-// Parser CSV con soporte de comillas, comas en campos y fixEncoding
-function splitCSVLine(line){
-  const result = []; let cur = ''; let inQ = false;
-  for(let i=0;i<line.length;i++){
-    const c = line[i];
-    if(c==='"'){ if(inQ && line[i+1]==='"'){ cur+='"'; i++; } else inQ=!inQ; }
-    else if(c===',' && !inQ){ result.push(cur); cur=''; }
-    else cur+=c;
-  }
-  result.push(cur);
-  return result.map(v=>fixEncoding(v.trim()));
-}
-
 function parseCSV(text){
   const lines = text.trim().split('\n');
-  const headers = splitCSVLine(lines[0]);
+  const headers = lines[0].split(',').map(h=>h.replace(/"/g,'').trim());
   return lines.slice(1).map(line=>{
-    const vals = splitCSVLine(line);
+    const vals = line.match(/(".*?"|[^,]+)(?=,|$)/g)||[];
     const obj = {};
-    headers.forEach((h,i)=>{ obj[h] = vals[i]||''; });
+    headers.forEach((h,i)=>{ obj[h]=(vals[i]||'').replace(/"/g,'').trim(); });
     let lat = parseFloat(obj.lat)||0;
     let lon = parseFloat(obj.lon)||0;
-    while(Math.abs(lat)>90)  lat/=10;
-    while(Math.abs(lon)>180) lon/=10;
-    obj.lat = lat; obj.lon = lon;
+    while(Math.abs(lat) > 90)  lat /= 10;
+    while(Math.abs(lon) > 180) lon /= 10;
+    obj.lat = lat;
+    obj.lon = lon;
     return obj;
   }).filter(r=>r.lat && r.lon);
 }
 
 function parseStoriesCSV(text){
+  if(!text || !text.trim()) return [];
   const lines = text.trim().split('\n');
-  if(lines.length < 2) return [];
-  const headers = splitCSVLine(lines[0]);
+  const headers = lines[0].split(',').map(h=>h.replace(/"/g,'').trim());
   return lines.slice(1).map(line=>{
-    const vals = splitCSVLine(line);
+    const vals = line.match(/("[^"]*"|[^,]+|(?<=,)(?=,)|^(?=,)|(?<=,)$)/g)||[];
     const obj = {};
-    headers.forEach((h,i)=>{ obj[h] = vals[i]||''; });
+    headers.forEach((h,i)=>{ obj[h]=(vals[i]||'').replace(/^"|"$/g,'').trim(); });
     const facts = [];
     for(let n=1;n<=4;n++){
-      const v=obj[`fact${n}_v`], k=obj[`fact${n}_k`];
-      if(v&&k) facts.push({v,k});
+      const v = obj[`fact${n}_v`], k = obj[`fact${n}_k`];
+      if(v && k) facts.push({v, k});
     }
-    let lat=parseFloat(obj.lat)||19.4;
-    let lon=parseFloat(obj.lon)||-99.1;
-    while(Math.abs(lat)>90)  lat/=10;
-    while(Math.abs(lon)>180) lon/=10;
-    return { kicker:obj.kicker||'', title:obj.title||'', region:obj.region||'',
-             body:obj.body||'', lat, lon, color:obj.color||'#943228',
-             facts, carpeta_foto:obj.carpeta_foto||'' };
-  }).filter(s=>s.title);
+    let lat = parseFloat(obj.lat)||19.4;
+    let lon = parseFloat(obj.lon)||-99.1;
+    while(Math.abs(lat) > 90)  lat /= 10;
+    while(Math.abs(lon) > 180) lon /= 10;
+    return {
+      kicker: obj.kicker||'', title: obj.title||'', region: obj.region||'',
+      body: obj.body||'', lat, lon, color: obj.color||'#943228',
+      facts, carpeta_foto: obj.carpeta_foto||'',
+    };
+  }).filter(s => s.title);
 }
 
 function parseCalCSV(text){
+  if(!text || !text.trim()) return [];
   const lines = text.trim().split('\n');
-  if(lines.length < 2) return [];
-  const headers = splitCSVLine(lines[0]);
+  const headers = lines[0].split(',').map(h=>h.replace(/"/g,'').trim());
   return lines.slice(1).map(line=>{
-    const vals = splitCSVLine(line);
+    const vals = line.split(',').map(v=>v.replace(/"/g,'').trim());
     const obj = {};
     headers.forEach((h,i)=>{ obj[h]=vals[i]||''; });
     const meses=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
