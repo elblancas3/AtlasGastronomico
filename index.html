@@ -1006,8 +1006,10 @@ nav { filter: none !important; grayscale: 0 !important; }
 // CONFIG — apunta a tu Google Sheet publicado como CSV
 // ═══════════════════════════════════════════════════════════════════════════════
 const SHEET_ID   = '1YNIdIlMkSTOZM6fIXOPIuZYmk7Y59BcBiD0uCFkrMSA'; // Atlas Gastronómico — datos reales
-const SHEET_NAME = 'Hoja1';
-const SHEET_URL  = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${SHEET_NAME}`;
+const SHEET_NAME      = 'Hoja1';
+const SHEET_URL       = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${SHEET_NAME}`;
+const STORIES_URL     = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=historias`;
+const CAL_URL         = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=temporadas`;
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby5eJ4HhEAqlEItiXfKupns6wHy4l-11QM3zyDYQXWuD4f_XZsfs0uCwLLs-vm_gBxPhw/exec';
 
@@ -1153,15 +1155,46 @@ function initLeafMap(){
 
 function loadData(){
   setStatus('Conectando con Google Sheets…','loading');
-  fetch(SHEET_URL, {signal: AbortSignal.timeout(5000)})
-    .then(r=>{ if(!r.ok) throw new Error('sheet'); return r.text(); })
-    .then(csv=>{ DATA = parseCSV(csv); if(!DATA.length) throw new Error('empty'); })
-    .catch(()=>{ DATA = DEMO; })
-    .finally(()=>{
-      renderPins(DATA);
-      renderSidebar(DATA);
-      setStatus(`${DATA.length} registros cargados`, 'ok');
-    });
+
+  // Cargar los tres sheets en paralelo
+  const fetchCSV = (url) => fetch(url, {signal: AbortSignal.timeout(8000)})
+    .then(r=>{ if(!r.ok) throw new Error('err'); return r.text(); });
+
+  Promise.allSettled([
+    fetchCSV(SHEET_URL),
+    fetchCSV(STORIES_URL),
+    fetchCSV(CAL_URL),
+  ]).then(([mapResult, storiesResult, calResult]) => {
+
+    // Mapa
+    if(mapResult.status === 'fulfilled'){
+      const parsed = parseCSV(mapResult.value);
+      DATA = parsed.length ? parsed : DEMO;
+    } else { DATA = DEMO; }
+
+    // Historias
+    if(storiesResult.status === 'fulfilled'){
+      const parsed = parseStoriesCSV(storiesResult.value);
+      if(parsed.length) {
+        STORIES.length = 0;
+        parsed.forEach(s => STORIES.push(s));
+      }
+    }
+
+    // Temporadas
+    if(calResult.status === 'fulfilled'){
+      const parsed = parseCalCSV(calResult.value);
+      if(parsed.length) {
+        CAL.length = 0;
+        parsed.forEach(c => CAL.push(c));
+      }
+    }
+
+    renderPins(DATA);
+    renderSidebar(DATA);
+    renderCal();
+    setStatus(`${DATA.length} registros cargados`, 'ok');
+  });
 }
 
 function parseCSV(text){
@@ -1175,6 +1208,54 @@ function parseCSV(text){
     obj.lon = parseFloat(obj.lon)||0;
     return obj;
   }).filter(r=>r.lat && r.lon);
+}
+
+
+function parseStoriesCSV(text){
+  // Columnas: kicker,title,region,body,lat,lon,color,fact1_v,fact1_k,fact2_v,fact2_k,fact3_v,fact3_k,fact4_v,fact4_k,carpeta_foto
+  if(!text || !text.trim()) return [];
+  const lines = text.trim().split('\n');
+  const headers = lines[0].split(',').map(h=>h.replace(/"/g,'').trim());
+  return lines.slice(1).map(line=>{
+    const vals = line.match(/("[^"]*"|[^,]+|(?<=,)(?=,)|^(?=,)|(?<=,)$)/g)||[];
+    const obj = {};
+    headers.forEach((h,i)=>{ obj[h]=(vals[i]||'').replace(/^"|"$/g,'').trim(); });
+    // Construir facts desde columnas fact1_v/fact1_k … fact4_v/fact4_k
+    const facts = [];
+    for(let n=1;n<=4;n++){
+      const v = obj[`fact${n}_v`], k = obj[`fact${n}_k`];
+      if(v && k) facts.push({v, k});
+    }
+    return {
+      kicker:      obj.kicker    || '',
+      title:       obj.title     || '',
+      region:      obj.region    || '',
+      body:        obj.body      || '',
+      lat:         parseFloat(obj.lat)  || 19.4,
+      lon:         parseFloat(obj.lon)  || -99.1,
+      color:       obj.color     || '#943228',
+      facts,
+      carpeta_foto: obj.carpeta_foto || '',
+    };
+  }).filter(s => s.title);
+}
+
+function parseCalCSV(text){
+  // Columnas: nombre,categoria,region,ene,feb,mar,abr,may,jun,jul,ago,sep,oct,nov,dic
+  // Valores: 0=ninguno, 1=plena, 2=pico
+  if(!text || !text.trim()) return [];
+  const lines = text.trim().split('\n');
+  return lines.slice(1).map(line=>{
+    const vals = line.match(/("[^"]*"|[^,]+|(?<=,)(?=,)|^(?=,)|(?<=,)$)/g)||[];
+    const clean = v => (v||'').replace(/^"|"$/g,'').trim();
+    const months = vals.slice(3,15).map(v => parseFloat(clean(v))||0);
+    return {
+      n:   clean(vals[0]),
+      cat: clean(vals[1]),
+      r:   clean(vals[2]),
+      m:   months,
+    };
+  }).filter(c => c.n);
 }
 
 function setStatus(txt, state){
@@ -1434,12 +1515,21 @@ function initStoryMap(){
 function loadStory(i){
   // foto de fondo según capítulo
   const col = document.querySelector('.story-map-col');
-  col.style.backgroundImage = [
+  // Foto de fondo: usar carpeta_foto del Sheet si existe, o fallback hardcodeado
+  const bgFallbacks = [
     `url('https://lh3.googleusercontent.com/d/19RwFLhCKHp6rWZGimxTYyLF1uzhYOTkd')`,
     `url('https://lh3.googleusercontent.com/d/143jzbKhqMAFtVObJUy2hqNDWoVOZpFOo')`,
     `url('https://lh3.googleusercontent.com/d/1_0Aq3sX40R99SPatgWKAcIqlCbYdns4E')`,
     `url('https://lh3.googleusercontent.com/d/1A-XA9-9VYyvJtYcg9SyeJw9wSmvovOZA')`,
-  ][i] || '';
+  ];
+  const story = STORIES[i];
+  let bgUrl = bgFallbacks[i] || '';
+  if(story && story.carpeta_foto){
+    const mFoto = story.carpeta_foto.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    const fotoId = mFoto ? mFoto[1] : story.carpeta_foto.replace(/.*id=/,'').split('&')[0];
+    if(fotoId) bgUrl = `url('https://lh3.googleusercontent.com/d/${fotoId}')`;
+  }
+  col.style.backgroundImage = bgUrl;
   col.style.backgroundSize = 'cover';
   col.style.backgroundPosition = 'center';
   // overlay
