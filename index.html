@@ -196,10 +196,11 @@ nav{
 }
 .if-close{
   position:absolute;top:.75rem;right:.75rem;
-  background:none;border:none;cursor:pointer;font-size:1rem;
-  color:var(--gris);line-height:1;padding:.2rem;border-radius:50%;
+  background:rgba(28,18,9,.55);border:none;cursor:pointer;font-size:1.1rem;
+  color:#FAF0DC;line-height:1;padding:.3rem .5rem;border-radius:50%;
+  z-index:600;
 }
-.if-close:hover{background:var(--arena);color:var(--tierra)}
+.if-close:hover{background:rgba(28,18,9,.9);color:#fff}
 
 /* leaflet overrides */
 .leaflet-container{font-family:'Courier Prime',monospace!important;background:#F0DDB8!important}
@@ -787,13 +788,13 @@ nav { filter: none !important; grayscale: 0 !important; }
 /* ── CARRUSEL DE FOTOS EN INFO PANEL ─────────────────────────────────────── */
 .if-carousel{
   position:relative;
-  width:100%;
+  width:calc(100% + 3rem);
   height:160px;
   background:var(--tierra);
   border-radius:var(--r) var(--r) 0 0;
   overflow:hidden;
   margin:-1.5rem -1.5rem 1rem -1.5rem;
-  width:calc(100% + 3rem);
+  z-index:1;
 }
 .if-carousel-track{
   display:flex;
@@ -892,7 +893,7 @@ nav { filter: none !important; grayscale: 0 !important; }
       <div class="status-bar"><span id="statusDot"></span><span id="statusTxt">Conectando con Sheets…</span></div>
       <div id="leafmap" style="height:100%;width:100%"></div>
       <div class="info-float" id="infoFloat">
-        <button class="if-close" onclick="document.getElementById('infoFloat').style.display='none'">×</button>
+        <button class="if-close" onclick="cerrarInfo()" title="Cerrar">×</button>
         <!-- Carrusel de fotos -->
         <div class="if-carousel" id="ifCarousel" style="display:none">
           <div class="if-carousel-loader" id="ifCarouselLoader">Cargando fotos…</div>
@@ -1569,6 +1570,11 @@ function openModal(d){
 // ═══════════════════════════════════════════════════════════════════════════════
 // ARRANQUE
 // ═══════════════════════════════════════════════════════════════════════════════
+function cerrarInfo(){
+  const panel = document.getElementById('infoFloat');
+  if(panel) panel.style.display = 'none';
+}
+
 window.addEventListener('load', ()=>{
   initLeafMap();
   renderCal();
