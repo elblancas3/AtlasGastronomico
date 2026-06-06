@@ -767,6 +767,66 @@ nav { filter: none !important; grayscale: 0 !important; }
   .story-wrap,.cal-wrap,.db-wrap { margin-top: 60px !important; }
 }
 
+
+/* ── CARRUSEL DE FOTOS EN INFO PANEL ─────────────────────────────────────── */
+.if-carousel{
+  position:relative;
+  width:100%;
+  height:160px;
+  background:var(--tierra);
+  border-radius:var(--r) var(--r) 0 0;
+  overflow:hidden;
+  margin:-1.5rem -1.5rem 1rem -1.5rem;
+  width:calc(100% + 3rem);
+}
+.if-carousel-track{
+  display:flex;
+  height:100%;
+  transition:transform .35s ease;
+}
+.if-carousel-slide{
+  min-width:100%;
+  height:100%;
+  background-size:cover;
+  background-position:center;
+  background-color:var(--tierra);
+  flex-shrink:0;
+}
+.if-carousel-btn{
+  position:absolute;top:50%;transform:translateY(-50%);
+  background:rgba(28,18,9,.55);border:none;color:#FAF0DC;
+  width:28px;height:28px;border-radius:50%;cursor:pointer;
+  font-size:14px;display:flex;align-items:center;justify-content:center;
+  z-index:10;transition:background .15s;
+  font-family:sans-serif;
+}
+.if-carousel-btn:hover{ background:rgba(28,18,9,.85); }
+.if-carousel-prev{ left:6px; }
+.if-carousel-next{ right:6px; }
+.if-carousel-dots{
+  position:absolute;bottom:6px;left:50%;transform:translateX(-50%);
+  display:flex;gap:4px;
+}
+.if-carousel-dot{
+  width:5px;height:5px;border-radius:50%;
+  background:rgba(250,240,220,.4);transition:background .2s;
+}
+.if-carousel-dot.on{ background:#FAF0DC; }
+.if-carousel-loader{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:rgba(250,240,220,.5);font-size:11px;font-family:'Courier Prime',monospace;
+  letter-spacing:.05em;
+}
+.if-no-foto{
+  width:100%;height:120px;
+  background:var(--tierra);
+  display:flex;align-items:center;justify-content:center;
+  border-radius:var(--r) var(--r) 0 0;
+  margin:-1.5rem -1.5rem .75rem -1.5rem;
+  width:calc(100% + 3rem);
+  font-size:1.5rem;opacity:.3;
+}
+
 </style>
 </head>
 <body>
@@ -786,7 +846,7 @@ nav { filter: none !important; grayscale: 0 !important; }
 <section id="sec-mapa" class="section active">
   
   <!-- Hero foto -->
-  <div class="hero-photo" style="margin-top:56px">
+  <div class="hero-photo" style="margin-top:68px">
     <div class="hero-photo-content">
       <span class="hp-kicker">Geomática MX × Mesa de Pueblo</span>
       <h1 class="hp-title">El Atlas Gastronómico<br><em>de México</em></h1>
@@ -817,6 +877,15 @@ nav { filter: none !important; grayscale: 0 !important; }
       <div id="leafmap" style="height:100%;width:100%"></div>
       <div class="info-float" id="infoFloat">
         <button class="if-close" onclick="document.getElementById('infoFloat').style.display='none'">×</button>
+        <!-- Carrusel de fotos -->
+        <div class="if-carousel" id="ifCarousel" style="display:none">
+          <div class="if-carousel-loader" id="ifCarouselLoader">Cargando fotos…</div>
+          <div class="if-carousel-track" id="ifCarouselTrack"></div>
+          <button class="if-carousel-btn if-carousel-prev" id="ifPrev" onclick="carouselNav(-1)">‹</button>
+          <button class="if-carousel-btn if-carousel-next" id="ifNext" onclick="carouselNav(1)">›</button>
+          <div class="if-carousel-dots" id="ifDots"></div>
+        </div>
+        <div class="if-no-foto" id="ifNoFoto">🌿</div>
         <span class="if-tipo" id="if-tipo"></span>
         <div class="if-name" id="if-name"></div>
         <div class="if-region" id="if-region"></div>
@@ -919,9 +988,11 @@ nav { filter: none !important; grayscale: 0 !important; }
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONFIG — apunta a tu Google Sheet publicado como CSV
 // ═══════════════════════════════════════════════════════════════════════════════
-const SHEET_ID   = '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms'; // Sheet de ejemplo público (reemplazar)
-const SHEET_NAME = 'atlas_datos';
+const SHEET_ID   = '1YNIdIlMkSTOZM6fIXOPIuZYmk7Y59BcBiD0uCFkrMSA'; // Atlas Gastronómico — datos reales
+const SHEET_NAME = 'Hoja1';
 const SHEET_URL  = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${SHEET_NAME}`;
+
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby5eJ4HhEAqlEItiXfKupns6wHy4l-11QM3zyDYQXWuD4f_XZsfs0uCwLLs-vm_gBxPhw/exec';
 
 // GeoJSON de estados de México (CDN público)
 const GEOJSON_URL = 'https://raw.githubusercontent.com/angelnmara/geojson/master/mexicoHigh.json';
@@ -1116,31 +1187,181 @@ function renderPins(data){
   const filtered = catFilter==='todo' ? data : data.filter(d=>d.tipo===catFilter);
   filtered.forEach(d=>{
     if(!d.lat || !d.lon) return;
+    const thumbHtml = d.imagen_principal
+      ? `<div style="background-image:url('${d.imagen_principal}');background-size:cover;background-position:center;height:80px;border-radius:4px 4px 0 0;margin:-6px -12px 8px;"></div>`
+      : '';
     const m = L.marker([d.lat, d.lon], {icon: makeIcon(d.tipo)})
       .addTo(leafMap)
       .bindPopup(`
+        ${thumbHtml}
         <div class="l-popup-tipo">${d.tipo}</div>
         <div class="l-popup-name">${d.nombre}</div>
         <div class="l-popup-loc">${d.region}${d.subregion?', '+d.subregion:''}</div>
-      `);
+      `, {maxWidth: 220});
     m.on('click', ()=>showInfo(d));
     markers[d.id] = m;
   });
 }
 
+// ── Estado del carrusel ────────────────────────────────────────────────────
+let carouselIdx   = 0;
+let carouselTotal = 0;
+const fotosCache  = {};
+
 function showInfo(d){
   document.getElementById('if-tipo').textContent   = d.tipo;
   document.getElementById('if-name').textContent   = d.nombre;
   document.getElementById('if-region').textContent = `${d.region}${d.subregion?', '+d.subregion:''}`;
-  document.getElementById('if-desc').textContent   = d.descripcion;
+  document.getElementById('if-desc').textContent   = d.descripcion || '';
   document.getElementById('if-pills').innerHTML =
-    `<span class="if-pill">📅 ${d.temporada}</span>` +
+    (d.temporada ? `<span class="if-pill">📅 ${d.temporada}</span>` : '') +
     (d.tags ? d.tags.split(',').slice(0,3).map(t=>`<span class="if-pill">${t.trim()}</span>`).join('') : '');
   document.getElementById('infoFloat').style.display='block';
-  // resaltar pin item en sidebar
+
+  // Resaltar pin en sidebar
   document.querySelectorAll('.pin-item').forEach(el=>el.classList.remove('sel'));
   const el = document.querySelector(`.pin-item[data-id="${d.id}"]`);
   if(el){ el.classList.add('sel'); el.scrollIntoView({block:'nearest'}); }
+
+  // Cargar fotos
+  cargarFotosInfo(d);
+}
+
+function cargarFotosInfo(d){
+  const carousel    = document.getElementById('ifCarousel');
+  const noFoto      = document.getElementById('ifNoFoto');
+  const track       = document.getElementById('ifCarouselTrack');
+  const loader      = document.getElementById('ifCarouselLoader');
+  const dotsEl      = document.getElementById('ifDots');
+
+  // Reset
+  track.innerHTML = '';
+  dotsEl.innerHTML = '';
+  carouselIdx = 0;
+
+  // Extraer folder_id de carpeta_fotos o imagen_principal
+  const folderUrl  = d.carpeta_fotos || '';
+  const imgPrincipal = d.imagen_principal || '';
+
+  // Si hay imagen_principal y no hay carpeta, mostrar solo esa imagen
+  if(!folderUrl && imgPrincipal){
+    construirCarousel([{url: imgPrincipal, nombre: d.nombre}]);
+    return;
+  }
+
+  // Si no hay nada, mostrar ícono
+  if(!folderUrl && !imgPrincipal){
+    carousel.style.display = 'none';
+    noFoto.style.display   = 'flex';
+    return;
+  }
+
+  // Extraer folder_id de la URL
+  const m = folderUrl.match(/folders\/([a-zA-Z0-9_-]+)/);
+  if(!m){
+    // Si la URL no es de carpeta, intentar usar como imagen directa
+    if(folderUrl.startsWith('http')){
+      construirCarousel([{url: folderUrl, nombre: d.nombre}]);
+    } else {
+      carousel.style.display = 'none';
+      noFoto.style.display   = 'flex';
+    }
+    return;
+  }
+
+  const folderId = m[1];
+
+  // Cache para no re-fetchear
+  if(fotosCache[folderId]){
+    construirCarousel(fotosCache[folderId]);
+    return;
+  }
+
+  // Mostrar carrusel en modo loading
+  noFoto.style.display = 'none';
+  carousel.style.display = 'block';
+  loader.style.display = 'flex';
+  track.innerHTML = '';
+
+  // Si hay imagen principal la añadimos primero sin esperar
+  if(imgPrincipal){
+    construirCarousel([{url: imgPrincipal, nombre: d.nombre + ' (principal)'}]);
+  }
+
+  // Fetch vía JSONP al Apps Script
+  const cbName = 'cb_fotos_' + Date.now();
+  window[cbName] = function(res){
+    delete window[cbName];
+    if(script.parentNode) script.parentNode.removeChild(script);
+    loader.style.display = 'none';
+    if(res.ok && res.fotos && res.fotos.length){
+      fotosCache[folderId] = res.fotos;
+      construirCarousel(res.fotos);
+    } else {
+      // Fallback: si ya pusimos imagen principal, queda; si no, emoji
+      if(!imgPrincipal){
+        carousel.style.display = 'none';
+        noFoto.style.display   = 'flex';
+      }
+    }
+  };
+
+  const script = document.createElement('script');
+  script.src = `${APPS_SCRIPT_URL}?action=fotos&folder_id=${folderId}&callback=${cbName}`;
+  script.onerror = ()=>{
+    delete window[cbName];
+    loader.style.display = 'none';
+    if(!imgPrincipal){
+      carousel.style.display = 'none';
+      noFoto.style.display   = 'flex';
+    }
+  };
+  document.head.appendChild(script);
+}
+
+function construirCarousel(fotos){
+  const carousel = document.getElementById('ifCarousel');
+  const noFoto   = document.getElementById('ifNoFoto');
+  const track    = document.getElementById('ifCarouselTrack');
+  const dotsEl   = document.getElementById('ifDots');
+  const loader   = document.getElementById('ifCarouselLoader');
+
+  if(!fotos || !fotos.length){
+    carousel.style.display = 'none';
+    noFoto.style.display = 'flex';
+    return;
+  }
+
+  noFoto.style.display = 'none';
+  carousel.style.display = 'block';
+  loader.style.display = 'none';
+  carouselTotal = fotos.length;
+  carouselIdx = 0;
+
+  track.innerHTML = fotos.map(f=>
+    `<div class="if-carousel-slide" style="background-image:url('${f.thumbnail||f.url}')"></div>`
+  ).join('');
+
+  dotsEl.innerHTML = fotos.map((_,i)=>
+    `<div class="if-carousel-dot${i===0?' on':''}"></div>`
+  ).join('');
+
+  // Ocultar botones si solo hay una foto
+  document.getElementById('ifPrev').style.display = fotos.length > 1 ? 'flex' : 'none';
+  document.getElementById('ifNext').style.display = fotos.length > 1 ? 'flex' : 'none';
+  actualizarCarousel();
+}
+
+function carouselNav(dir){
+  carouselIdx = (carouselIdx + dir + carouselTotal) % carouselTotal;
+  actualizarCarousel();
+}
+
+function actualizarCarousel(){
+  const track  = document.getElementById('ifCarouselTrack');
+  const dots   = document.querySelectorAll('.if-carousel-dot');
+  track.style.transform = `translateX(-${carouselIdx * 100}%)`;
+  dots.forEach((d,i)=> d.classList.toggle('on', i===carouselIdx));
 }
 
 function renderSidebar(data){
